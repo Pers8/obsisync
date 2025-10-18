@@ -1,0 +1,81 @@
+{
+  "name": "obsisync",
+  "version": "0.1.7",
+  "private": true,
+  "description": "Tiny Electron app to auto-backup Obsidian vaults to GitHub on a schedule.",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=http://localhost:5173 electron .\"",
+    "start": "electron .",
+    "build:ui": "vite build",
+    "build": "vite build && electron-builder",
+    "postinstall": "electron-builder install-app-deps || echo \"postinstall soft-fail\""
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "discord-rpc": "^4.0.1",
+    "dotenv": "^17.2.3",
+    "electron-store": "^8.2.0",
+    "mkdirp": "^3.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.2",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.pers.obsisync",
+    "productName": "ObsiSync",
+    "asar": true,
+    "files": [
+      "dist/**",
+      "electron/**",
+      "node_modules/**",
+      "package.json",
+      "public/**"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "icon": "build/logo.ico",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/logo.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "ObsiSync"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/logo.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build"
+    }
+  }
+}

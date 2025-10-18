@@ -1,0 +1,75 @@
+﻿
+import React, { useEffect, useMemo, useState } from 'react'
+import VaultList from './components/VaultList'
+import VaultSettings from './components/VaultSettings'
+import { Plus, SidebarToggle } from './icons'
+
+declare global { interface Window { electronAPI: any } }
+
+type Vault = {
+  id: string; name: string; path: string; color: string;
+  repoUrl?: string; branch?: string; intervalMin?: number; intervalSec?: number;
+  lastSync?: string; onlyIfChanges?: boolean; include?: string; exclude?: string;
+  notifyOS?: boolean; notifyOverlay?: boolean; overlayAlpha?: number; overlayScale?: number;
+  commitTemplate?: string;
+}
+export default function App(){
+  const [vaults, setVaults] = useState<Vault[]>([])
+  const [sel, setSel] = useState<string|null>(null)
+  const [collapsed, setCollapsed] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const selected = useMemo(()=> vaults.find(v=>v.id===sel) || null, [sel, vaults])
+
+  useEffect(()=>{ (async()=> {
+    setVaults(await window.electronAPI?.storeGet('vaults') || [])
+    setPaused(!!(await window.electronAPI?.storeGet('paused')))
+  })() },[])
+
+  async function saveVaults(n:Vault[]){ setVaults(n); await window.electronAPI.storeSet('vaults', n) }
+  function addVault(){
+    const id=Math.random().toString(36).slice(2)
+    const pal=['#7aa2f7','#f472b6','#f59e0b','#34d399','#60a5fa','#a78bfa','#f87171','#22d3ee']
+    const color=pal[(vaults.length)%pal.length]
+    const v:Vault={id,name:'New Vault',path:'',color,intervalSec:600,overlayAlpha:0.55,overlayScale:0.92,notifyOverlay:true,onlyIfChanges:true,branch:'main',commitTemplate:'ObsiSync: {count} files â€” {date}'}
+    saveVaults([...(vaults||[]),v]); setSel(id)
+  }
+  async function pickFolder(v:Vault){
+    const p=await window.electronAPI.pickFolder(); if(!p) return
+    const n=vaults.map(x=>x.id===v.id?{...x,path:p,name:x.name==='New Vault'?p.split(/[\\/]/).pop():x.name}:x); saveVaults(n)
+  }
+  async function syncNow(v:Vault){ await window.electronAPI.vaultSync(v.id) }
+  async function togglePause(){ const val = await window.electronAPI.togglePaused(); setPaused(val) }
+
+  return (
+  <div className={`h-full grid sidebarShell ${collapsed ? 'grid-cols-[64px_1fr] sidebarCollapsed' : 'grid-cols-[320px_1fr]'}`}>
+    <aside className="panel h-[calc(100%-2rem)] m-4 mr-2 p-3 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between">
+        <button data-role="collapse" className="ghostIcon tool" data-tip="Toggle sidebar" onClick={() => setCollapsed(v => !v)}><SidebarToggle className="w-5 h-5"/></button>
+        {!collapsed && <div className="text-sm text-slate-300 tracking-wide">ObsiSync</div>}
+        {!collapsed && <div className="flex items-center gap-1">
+          <button className="ghostIcon tool" data-tip="Add vault" onClick={addVault}><Plus className="w-4 h-4"/></button>
+          
+        </div>}
+      </div>
+      <div className="mt-3 flex-1 asideScroll pr-1 sidebarContent">
+        {!collapsed ? (
+          <VaultList items={vaults} selectedId={sel} onSelect={setSel} onSync={syncNow} onOpenPath={(id:any)=>window.electronAPI.openPath(id)} />
+        ) : (
+          <div className="flex flex-col gap-3 items-center pt-3">
+            {vaults.map(v=> <div key={v.id} title={v.name} onClick={()=>setSel(v.id)} className={`w-8 h-8 rounded-lg border ${sel===v.id?'border-obs-accent/90':'border-obs-border/60'} cursor-pointer`} style={{background:v.color}}/>)}
+          </div>
+        )}
+      </div>
+      {!collapsed && <div className="text-[10px] text-slate-400/80 pt-2">Tip: SSH remotes avoid storing tokens.</div>}
+    </aside>
+
+    <main className="h-[calc(100%-2rem)] m-4 ml-2 p-4 panel overflow-hidden">
+      <div className="h-full">{selected ? (
+        <VaultSettings key={selected.id} value={selected} onChange={(nv:any)=> saveVaults(vaults.map(v=>v.id===nv.id?nv:v))} onPick={()=>pickFolder(selected)} onSync={()=>syncNow(selected)} />
+      ) : (
+        <div className="h-full flex items-center justify-center text-slate-400">Select a vault or click + to add one.</div>
+      )}</div>
+    </main>
+  </div>)
+}
+

@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ObsiSync – Launch</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:;">
+  <style>
+    :root {
+      --bg0: rgba(3,6,14,0.0);
+      --bg1: rgba(8,14,28,0.75);
+      --grid: rgba(122,162,247,0.12);
+      --accentA: #7aa2f7;
+      --accentB: #5a82d7;
+      --mint: #34d399;
+      --gold: #f59e0b;
+      --vio:  #a78bfa;
+    }
+    html, body {
+      height: 100%; margin: 0; padding: 0;
+      background: transparent; overflow: hidden;
+    }
+    .root {
+      position: absolute; inset: 0;
+      /* subtle gradient glass */
+      background:
+        radial-gradient(1200px 600px at 50% 100%, rgba(12,18,35,0.0), transparent 0%),
+        radial-gradient(900px 500px at 0% 0%, rgba(10,18,35,0.0), transparent 0%),
+        radial-gradient(900px 500px at 100% 0%, rgba(10,18,35,0.0), transparent 0%);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+    /* animated grid */
+    .grid {
+      position: absolute; inset: 0; opacity: .35; mask-image: radial-gradient(circle at 50% 60%, black 50%, transparent 100%);
+    }
+    .grid::before, .grid::after {
+      content: ""; position: absolute; inset: -50%;
+      background-image:
+        linear-gradient(to right, var(--grid) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+      background-size: 28px 28px, 28px 28px;
+      transform-origin: 50% 50%;
+      animation: gridspin 26s linear infinite;
+    }
+    .grid::after { animation-direction: reverse; opacity: .7; }
+
+    @keyframes gridspin { to { transform: rotate(360deg); } }
+
+    .center {
+      position: absolute; inset: 0;
+      display: grid; place-items: center;
+    }
+
+    /* Orbital logo */
+    .logoWrap {
+      position: relative; width: 220px; height: 220px;
+      filter: drop-shadow(0 10px 50px rgba(122,162,247,.45));
+      animation: popIn 700ms cubic-bezier(.2,.8,.2,1) both 150ms;
+      transform: translateY(10px) scale(.98);
+    }
+    @keyframes popIn {
+      0%   { opacity: 0; transform: translateY(12px) scale(.92) rotate(-2deg); }
+      60%  { opacity: 1; transform: translateY(0)    scale(1.06) rotate(1deg); }
+      100% { opacity: 1; transform: translateY(0)    scale(1.00) rotate(0deg); }
+    }
+
+    .ring {
+      position: absolute; inset: 0; border-radius: 999px;
+      background:
+        radial-gradient(closest-side, rgba(90,130,215,.25), transparent 70%),
+        conic-gradient(from 0deg, rgba(122,162,247,.0) 0 280deg, rgba(122,162,247,.85) 320deg 360deg);
+      animation: ringspin 3.2s cubic-bezier(.2,.8,.2,1) infinite;
+    }
+    @keyframes ringspin { to { transform: rotate(360deg); } }
+
+    .core {
+      position: absolute; inset: 26px; border-radius: 999px;
+      background:
+        radial-gradient(circle at 35% 35%, rgba(122,162,247,.9), rgba(90,130,215,.9) 40%, rgba(40,70,140,.7) 80%),
+        radial-gradient(circle at 65% 70%, rgba(90,130,215,.8), transparent 60%);
+      box-shadow:
+        inset 0 2px 18px rgba(255,255,255,.14),
+        0 10px 40px rgba(122,162,247,.35);
+      animation: pulse 2.6s ease-in-out infinite 400ms;
+    }
+    @keyframes pulse {
+      0%,100% { transform: scale(1); }
+      50%     { transform: scale(1.03); }
+    }
+
+    .orbit {
+      position: absolute; inset: 0; border-radius: 999px;
+      animation: orbit 8s linear infinite;
+    }
+    @keyframes orbit { to { transform: rotate(360deg); } }
+
+    .dot {
+      position: absolute; width: 12px; height: 12px; border-radius: 999px;
+      background: white;
+      box-shadow: 0 0 18px rgba(122,162,247,.9), 0 0 40px rgba(122,162,247,.45);
+    }
+    .dot.a { top: -6px; left: calc(50% - 6px); background: var(--accentA); }
+    .dot.b { left: -6px; top: calc(50% - 6px); background: var(--mint);   box-shadow: 0 0 18px rgba(52,211,153,.9), 0 0 40px rgba(52,211,153,.45); }
+    .dot.c { right: -6px; top: calc(50% - 6px); background: var(--gold);  box-shadow: 0 0 18px rgba(245,158,11,.9), 0 0 40px rgba(245,158,11,.45); }
+
+    /* Title */
+    .title {
+      margin-top: 24px;
+      font: 800 28px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      letter-spacing: .02em;
+      background: linear-gradient(90deg, var(--accentA), var(--accentB));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-shadow: 0 10px 40px rgba(122,162,247,.35);
+      animation: titleIn 700ms cubic-bezier(.2,.8,.2,1) both 450ms;
+      filter: drop-shadow(0 6px 24px rgba(122,162,247,.35));
+    }
+    @keyframes titleIn {
+      0% { opacity: 0; transform: translateY(8px) scale(.98); letter-spacing: .08em; }
+      100%{ opacity: 1; transform: translateY(0)  scale(1.00); letter-spacing: .02em; }
+    }
+
+    /* tiny “booting” subtext */
+    .sub {
+      margin-top: 6px; color: rgba(197,212,232,.75);
+      font: 600 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+      animation: fadeIn 500ms ease 700ms both;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: translateY(0) } }
+
+    /* Sparkles */
+    .spark {
+      position: absolute; width: 2px; height: 2px; background: white; border-radius: 99px;
+      box-shadow: 0 0 8px rgba(122,162,247,.9);
+      opacity: .0; animation: sparkle 2.2s linear infinite;
+    }
+    @keyframes sparkle {
+      0% { opacity: 0; transform: translateY(0) scale(1); }
+      15%{ opacity: .9; }
+      100%{ opacity: 0; transform: translateY(-60px) scale(.6); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .grid, .ring, .orbit, .core, .spark { animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="root">
+    <div class="grid"></div>
+
+    <div class="center">
+      <div>
+        <div class="logoWrap">
+          <div class="ring"></div>
+          <div class="core"></div>
+          <div class="orbit">
+            <div class="dot a"></div>
+            <div class="dot b"></div>
+            <div class="dot c"></div>
+          </div>
+        </div>
+        <div class="title">ObsiSync</div>
+        <div class="sub">Booting vault engines…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- sparkles -->
+  <script>
+    const root = document.querySelector('.root')
+    const N = 24
+    for (let i = 0; i < N; i++) {
+      const s = document.createElement('div')
+      s.className = 'spark'
+      const x = Math.random()*100
+      const y = 60 + Math.random()*40
+      const d = 800 + Math.random()*2200
+      s.style.left = x + '%'
+      s.style.bottom = y + 'px'
+      s.style.animationDuration = d + 'ms'
+      s.style.animationDelay = Math.random()*1200 + 'ms'
+      root.appendChild(s)
+    }
+  </script>
+</body>
+</html>

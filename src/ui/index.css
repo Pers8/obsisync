@@ -1,0 +1,58 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { 
+  color-scheme: dark; 
+}
+
+html, body, #root { 
+  height: 100%; 
+  overflow: hidden; 
+}
+
+body { 
+  @apply text-slate-200 font-mono;
+  /* Ensure body is transparent to let window transparency work */
+  background: transparent;
+}
+
+/* Ensure the root div is fully opaque */
+#root {
+  background-color: #070b17;  /* Fully opaque */
+}
+
+.panel { 
+  @apply bg-obs-panel/80 border border-obs-border/60 rounded-2xl; 
+}
+
+.asideScroll { 
+  overflow-y: auto; 
+}
+
+.asideScroll::-webkit-scrollbar { 
+  width: 10px; 
+}
+
+.asideScroll::-webkit-scrollbar-track { 
+  background: #0b1430; 
+  border-radius: 10px; 
+}
+
+.asideScroll::-webkit-scrollbar-thumb { 
+  background: linear-gradient(180deg, rgba(122,162,247,.35), rgba(122,162,247,.15)); 
+  border-radius: 10px; 
+  border: 2px solid #0b1430; 
+}
+
+.asideScroll:hover::-webkit-scrollbar-thumb { 
+  background: linear-gradient(180deg, rgba(122,162,247,.55), rgba(122,162,247,.25)); 
+}
+
+button.icon { 
+  @apply p-2 rounded-lg border border-obs-border/60 hover:border-obs-accent/80 transition-colors; 
+}
+
+.badge { 
+  @apply text-[10px] px-2 py-0.5 rounded-full border border-obs-border/60 text-slate-300; 
+}
