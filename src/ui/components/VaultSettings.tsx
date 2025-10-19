@@ -627,7 +627,7 @@ export default function VaultSettings({
           </div>
         </div>
 
-        {/* File Filters (Optional) */}
+        {/* File Filters */}
         <div className="settings-group" style={{ marginBottom: 0 }} data-delay="5">
           <div className="section-title">File Filters (Optional)</div>
           <div className="space-y-3">

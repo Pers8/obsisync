@@ -1,5 +1,4 @@
-﻿// src/ui/icons.tsx
-import * as React from "react";
+﻿import * as React from "react";
 
 export const ChevronDown = (p: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} {...p}>

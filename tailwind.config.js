@@ -14,7 +14,7 @@ export default {
         'obs-muted': '#8ba2c8',
         'obs-green': '#34d399',
         'obs-red': '#ef4444',
-        // new: section background and stroke color
+        // section background and stroke color
         'obs-section': '#06162a',
         'obs-stroke': '#34567B'
       }

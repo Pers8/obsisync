@@ -31,6 +31,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('win:minimize'),
   closeWindow: () => ipcRenderer.invoke('win:close'),
   
-  // NEW: Open external URLs
+  // Open external URLs
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 });

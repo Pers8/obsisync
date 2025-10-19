@@ -6,30 +6,28 @@
     <title>ObsiSync</title>
     <script type="module" src="./src/main.tsx"></script>
     <style>
-      /* The OS window is transparent; we draw a rounded shell here */
       html, body, #root { height: 100%; margin: 0; overflow: hidden; background: transparent; }
     
-      /* Rounded window shell */
       #root {
         position: relative;
         width: 100%;
         height: 100%;
     
-        /* a bit more roundy */
         border-radius: 20px;
 
-        /* thin border (≈50% transparency) + subtle glow matching the app vibe */
         border: 1px solid rgba(98,140,190,0.2);
         
-        /* clip content to the rounded shape */
         overflow: hidden;
 
         background-clip: padding-box;
         -webkit-background-clip: padding-box;
     
         background-color: rgba(7,11,23,1); 
-    
+        
+        /*Background artwork by JimDesignsCo: https://x.com/JimDesignsCo/status/1634618698353848321*/
         background-image: url("/bg.png");
+        /*******************************************************************************************/
+
         background-repeat: no-repeat;
         background-position: center center;
         background-size: cover;

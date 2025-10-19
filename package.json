@@ -3,7 +3,8 @@
   "version": "0.1.8",
   "private": true,
   "description": "Auto-backup Obsidian vaults to GitHub on a schedule",
-  "author": "Péres Eldad <pereslcb@gmail.com>",
+  "author": "Peres Eldad", 
+  "license": "CC-BY-NC-4.0",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
@@ -43,6 +44,7 @@
     "appId": "com.pers.obsisync",
     "productName": "ObsiSync",
     "asar": true,
+    "copyright": "© 2025 Peres Eldad",
 
     "directories": { "buildResources": "build" },
 
