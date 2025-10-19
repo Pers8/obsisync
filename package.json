@@ -1,6 +1,6 @@
 {
   "name": "obsisync",
-  "version": "0.1.8",
+  "version": "0.1.1",
   "private": true,
   "description": "Auto-backup Obsidian vaults to GitHub on a schedule",
   "author": "Peres Eldad", 
