@@ -1,4 +1,3 @@
-@'
 # Build outputs
 dist/
 *.exe
@@ -18,4 +17,3 @@ node_modules/
 Thumbs.db
 .idea/
 .vscode/
-'@ | Out-File -Encoding utf8 .gitignore

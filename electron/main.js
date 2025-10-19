@@ -1,4 +1,5 @@
-﻿/** ─────────────────────────────────────────────────────────────────────────────
+﻿// electron/main.js
+/** ─────────────────────────────────────────────────────────────────────────────
  *  Imports
  *  ───────────────────────────────────────────────────────────────────────────*/
 import {
@@ -12,129 +13,135 @@ import {
   shell,
   nativeImage,
   screen
-} from 'electron'
-import path from 'node:path'
-import Store from 'electron-store'
-import fs from 'node:fs'
-import { spawn } from 'node:child_process'
-import chokidar from 'chokidar'
-
-/** Discord Rich Presence */
-import RPC from 'discord-rpc'
+} from 'electron';
+import path from 'node:path';
+import Store from 'electron-store';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+import chokidar from 'chokidar';
+import RPC from 'discord-rpc';
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Constants
  *  ───────────────────────────────────────────────────────────────────────────*/
-const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '1428920385776386078'
-const MIN_PRESENCE_INTERVAL_MS = 15_000
-const SYNC_DONE_SHOW_MS = 5_000
-
-// Splash / show/hide timings
-const SPLASH_DURATION_MS = 7200
-const MAIN_FADE_IN_MS    = 300
-const MAIN_FADE_OUT_MS   = 180
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '1428920385776386078';
+const MIN_PRESENCE_INTERVAL_MS = 15_000;
+const SYNC_DONE_SHOW_MS = 5_000;
+const SPLASH_DURATION_MS = 7200;
+const MAIN_FADE_IN_MS    = 300;
+const MAIN_FADE_OUT_MS   = 180;
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Store & Globals
  *  ───────────────────────────────────────────────────────────────────────────*/
-const store = new Store({
-  name: 'settings',
-  defaults: { vaults: [], paused: false, notifications: [] }
-})
+const store = new Store({ name: 'settings', defaults: { vaults: [], paused: false, notifications: [] } });
 
-let tray = null
-let win = null
-let overlay = null
-let splash = null
-let quitting = false
+let tray = null;
+let win = null;
+let overlay = null;
+let splash = null;
+let quitting = false;
 
-/** per-vault watchers + schedulers */
-const watchers = new Map() // id -> chokidar FSWatcher
-const timers = new Map()   // id -> setInterval ID
+const watchers = new Map(); // id -> chokidar FSWatcher
+const timers   = new Map(); // id -> setInterval ID
+
+/** ─────────────────────────────────────────────────────────────────────────────
+ *  Robust path helpers & logging (prod-safe)
+ *  ───────────────────────────────────────────────────────────────────────────*/
+function APP_RESOLVE(...p) {
+  // Resolved inside app.asar in prod
+  return path.join(app.getAppPath(), ...p);
+}
+function RESOURCES_RESOLVE(...p) {
+  // Points to unpacked resources directory in prod (good for icons), cwd in dev
+  const base = app.isPackaged ? process.resourcesPath : process.cwd();
+  return path.join(base, ...p);
+}
+function logLine(msg) {
+  try {
+    const dir = app.getPath('userData');
+    fs.mkdirSync(path.join(dir, 'logs'), { recursive: true });
+    fs.appendFileSync(path.join(dir, 'logs', 'main.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {}
+}
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Utilities (notifications, git helpers, size, etc.)
  *  ───────────────────────────────────────────────────────────────────────────*/
-function notifyOS(title, body) {
-  new Notification({ title, body, silent: false }).show()
-}
+function notifyOS(title, body) { new Notification({ title, body, silent: false }).show(); }
 
 function runGit(cwd, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn('git', args, { cwd })
-    let out = '', err = ''
-    p.stdout.on('data', d => (out += d.toString()))
-    p.stderr.on('data', d => (err += d.toString()))
-    p.on('close', c => (c === 0 ? resolve({ out, err }) : reject(new Error(err || out))))
-  })
+    const p = spawn('git', args, { cwd });
+    let out = '', err = '';
+    p.stdout.on('data', d => (out += d.toString()));
+    p.stderr.on('data', d => (err += d.toString()));
+    p.on('close', c => (c === 0 ? resolve({ out, err }) : reject(new Error(err || out))));
+  });
 }
 
 async function ensureRepo(v) {
-  const gitDir = path.join(v.path, '.git')
+  const gitDir = path.join(v.path, '.git');
   if (!fs.existsSync(gitDir)) {
-    await runGit(v.path, ['init'])
-    if (v.branch) await runGit(v.path, ['checkout', '-B', v.branch])
+    await runGit(v.path, ['init']);
+    if (v.branch) await runGit(v.path, ['checkout', '-B', v.branch]);
   }
   if (v.repoUrl) {
-    try { await runGit(v.path, ['remote', 'set-url', 'origin', v.repoUrl]) }
-    catch { await runGit(v.path, ['remote', 'add', 'origin', v.repoUrl]) }
+    try { await runGit(v.path, ['remote', 'set-url', 'origin', v.repoUrl]); }
+    catch { await runGit(v.path, ['remote', 'add', 'origin', v.repoUrl]); }
   }
 }
 
 async function countChanges(cwd) {
-  const s = await runGit(cwd, ['status', '--porcelain'])
-  return s.out.split('\n').filter(Boolean).length
+  const s = await runGit(cwd, ['status', '--porcelain']);
+  return s.out.split('\n').filter(Boolean).length;
 }
 
 function countFilesUnder(root) {
-  let count = 0
+  let count = 0;
   function walk(p) {
     for (const dirent of fs.readdirSync(p, { withFileTypes: true })) {
-      if (dirent.name === '.obsidian') continue
-      const fp = path.join(p, dirent.name)
-      if (dirent.isDirectory()) walk(fp)
-      else count++
+      if (dirent.name === '.obsidian') continue;
+      const fp = path.join(p, dirent.name);
+      if (dirent.isDirectory()) walk(fp);
+      else count++;
     }
   }
-  try { walk(root) } catch {}
-  return count
+  try { walk(root); } catch {}
+  return count;
 }
 
 async function getGitCommitCount(cwd) {
   try {
-    const result = await runGit(cwd, ['rev-list', '--count', 'HEAD'])
-    return parseInt(result.out.trim()) || 0
-  } catch { return 0 }
+    const result = await runGit(cwd, ['rev-list', '--count', 'HEAD']);
+    return parseInt(result.out.trim()) || 0;
+  } catch { return 0; }
 }
 
 function getDirSize(dirPath) {
-  let totalSize = 0
+  let totalSize = 0;
   function walk(p) {
     try {
-      for (const dirent of fs.readdirSync(p, { withFileTypes: true })) {
-        const fp = path.join(p, dirent.name)
-        if (dirent.isDirectory()) {
-          if (dirent.name !== '.git') walk(fp)
-        } else {
-          try { totalSize += fs.statSync(fp).size } catch {}
-        }
+      for (const d of fs.readdirSync(p, { withFileTypes: true })) {
+        const fp = path.join(p, d.name);
+        if (d.isDirectory()) { if (d.name !== '.git') walk(fp); }
+        else { try { totalSize += fs.statSync(fp).size; } catch {} }
       }
     } catch {}
   }
-  walk(dirPath)
-
-  if (totalSize < 1024) return totalSize + ' B'
-  if (totalSize < 1024 * 1024) return (totalSize / 1024).toFixed(1) + ' KB'
-  if (totalSize < 1024 * 1024 * 1024) return (totalSize / (1024 * 1024)).toFixed(1) + ' MB'
-  return (totalSize / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+  walk(dirPath);
+  if (totalSize < 1024) return totalSize + ' B';
+  if (totalSize < 1024 * 1024) return (totalSize / 1024).toFixed(1) + ' KB';
+  if (totalSize < 1024 * 1024 * 1024) return (totalSize / (1024 * 1024)).toFixed(1) + ' MB';
+  return (totalSize / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Overlay (toast) window
  *  ───────────────────────────────────────────────────────────────────────────*/
 function createOverlay() {
-  if (overlay && !overlay.isDestroyed()) return overlay
-  const bounds = screen.getPrimaryDisplay().workArea
+  if (overlay && !overlay.isDestroyed()) return overlay;
+  const bounds = screen.getPrimaryDisplay().workArea;
 
   overlay = new BrowserWindow({
     width: 360,
@@ -150,66 +157,66 @@ function createOverlay() {
     alwaysOnTop: true,
     backgroundColor: '#00000000',
     webPreferences: {
-      preload: path.join(process.cwd(), 'electron', 'overlay_preload.cjs'),
+      preload: APP_RESOLVE('electron', 'overlay_preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true
     }
-  })
-  overlay.setIgnoreMouseEvents(true)
+  });
+  overlay.setIgnoreMouseEvents(true);
 
-  const devUrl = process.env.VITE_DEV_SERVER
-  if (devUrl) overlay.loadURL(devUrl + '/notify.html')
-  else overlay.loadFile(path.join(process.cwd(), 'public', 'notify.html'))
+  const devUrl = process.env.VITE_DEV_SERVER;
+  if (devUrl) overlay.loadURL(devUrl + '/notify.html');
+  else overlay.loadFile(APP_RESOLVE('public', 'notify.html'));
 
-  return overlay
+  return overlay;
 }
 
 function showOverlay(payload) {
-  const o = createOverlay()
-  o.webContents.send('overlay:show', payload)
+  const o = createOverlay();
+  o.webContents.send('overlay:show', payload);
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
- *  Window fade helpers (no weird scaling)
+ *  Window fade helpers
  *  ───────────────────────────────────────────────────────────────────────────*/
 function fadeWindow(winRef, from, to, ms) {
-  if (!winRef) return Promise.resolve()
+  if (!winRef) return Promise.resolve();
   return new Promise(resolve => {
-    try { winRef.setOpacity(from) } catch {}
-    const steps = Math.max(12, Math.floor(ms / 16))
-    let i = 0
+    try { winRef.setOpacity(from); } catch {}
+    const steps = Math.max(12, Math.floor(ms / 16));
+    let i = 0;
     const timer = setInterval(() => {
-      i++
-      const t = i / steps
-      const eased = 1 - Math.pow(1 - t, 3) // cubic out
-      const val = from + (to - from) * eased
-      try { winRef.setOpacity(val) } catch {}
+      i++;
+      const t = i / steps;
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = from + (to - from) * eased;
+      try { winRef.setOpacity(val); } catch {}
       if (i >= steps) {
-        clearInterval(timer)
-        try { winRef.setOpacity(to) } catch {}
-        resolve()
+        clearInterval(timer);
+        try { winRef.setOpacity(to); } catch {}
+        resolve();
       }
-    }, Math.max(8, Math.floor(ms / steps)))
-  })
+    }, Math.max(8, Math.floor(ms / steps)));
+  });
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  App Window & Tray
  *  ───────────────────────────────────────────────────────────────────────────*/
 function resolveIcon() {
-  const candidates = ['logo.ico', 'icon.ico', 'app.ico']
+  const candidates = ['logo.ico', 'icon.ico', 'app.ico'];
   for (const name of candidates) {
-    const p = path.join(process.cwd(), 'build', name)
+    const p = RESOURCES_RESOLVE('build', name); // resourcesPath in prod, cwd in dev
     try {
-      const img = nativeImage.createFromPath(p)
-      if (!img.isEmpty()) return p
+      const img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) return p;
     } catch {}
   }
-  return null
+  return null;
 }
 
 async function createWindow({ deferShow = false } = {}) {
-  const iconPath = resolveIcon()
+  const iconPath = resolveIcon();
   win = new BrowserWindow({
     width: 1160,
     height: 720,
@@ -226,137 +233,140 @@ async function createWindow({ deferShow = false } = {}) {
     show: !deferShow,
     icon: iconPath || undefined,
     webPreferences: {
-      preload: path.join(process.cwd(), 'electron', 'preload.cjs'),
+      preload: APP_RESOLVE('electron', 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true
     }
-  })
+  });
 
-  win.setMenuBarVisibility(false)
+  win.setMenuBarVisibility(false);
 
-  const devUrl = process.env.VITE_DEV_SERVER
-  if (devUrl) await win.loadURL(devUrl)
-  else await win.loadFile(path.join(process.cwd(), 'dist', 'index.html'))
+  // Load dev vs prod
+  try {
+    const devUrl = process.env.VITE_DEV_SERVER;
+    if (devUrl) {
+      logLine(`Loading dev URL: ${devUrl}`);
+      await win.loadURL(devUrl);
+    } else {
+      const indexFile = APP_RESOLVE('dist', 'index.html');
+      logLine(`Loading prod file: ${indexFile}`);
+      await win.loadFile(indexFile);
+    }
+  } catch (err) {
+    logLine(`Main load error: ${err?.stack || err}`);
+  }
+
+  // Ensure it actually appears
+  win.on('ready-to-show', () => {
+    try {
+      if (!deferShow) { win.show(); win.focus(); }
+    } catch {}
+  });
 
   win.on('close', async (e) => {
     if (!quitting) {
-      e.preventDefault()
-      await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS)
-      try { win.hide(); win.setOpacity(1) } catch {}
+      e.preventDefault();
+      await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS);
+      try { win.hide(); win.setOpacity(1); } catch {}
     }
-  })
+  });
 }
 
 function rebuildTray() {
-  const iconPath = resolveIcon()
-  let trayIcon
-  if (iconPath) {
-    try { trayIcon = nativeImage.createFromPath(iconPath) } catch {}
-  }
-  if (!trayIcon || trayIcon.isEmpty()) trayIcon = nativeImage.createEmpty()
+  const iconPath = resolveIcon();
+  let trayIcon;
+  if (iconPath) { try { trayIcon = nativeImage.createFromPath(iconPath); } catch {} }
+  if (!trayIcon || trayIcon.isEmpty()) trayIcon = nativeImage.createEmpty();
 
-  if (!tray) tray = new Tray(trayIcon)
-  else tray.setImage(trayIcon)
+  if (!tray) tray = new Tray(trayIcon); else tray.setImage(trayIcon);
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Open ObsiSync', click: () => { win?.show(); win?.focus() } },
+    { label: 'Open ObsiSync', click: () => { win?.show(); win?.focus(); } },
     { type: 'separator' },
     { label: 'Sync all now', click: async () => {
-        const tasks = store.get('vaults').map(v => syncVault(v))
-        await Promise.all(tasks)
+        const tasks = store.get('vaults').map(v => syncVault(v));
+        await Promise.all(tasks);
       }
     },
     { type: 'separator' },
-    { label: 'Quit', click: () => { quitting = true; app.quit() } }
-  ])
-  tray.setToolTip('ObsiSync')
-  tray.setContextMenu(menu)
-  tray.on('click', () => { win?.show(); win?.focus() })
-  tray.on('right-click', () => { win?.show(); win?.focus() })
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } }
+  ]);
+  tray.setToolTip('ObsiSync');
+  tray.setContextMenu(menu);
+  tray.on('click', () => { win?.show(); win?.focus(); });
+  tray.on('right-click', () => { win?.show(); win?.focus(); });
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Schedulers (watch + interval)
  *  ───────────────────────────────────────────────────────────────────────────*/
 function startWatcher(v) {
-  if (watchers.has(v.id)) return
-  const w = chokidar.watch(v.path, { ignored: /(^|[/\\])\./, ignoreInitial: true })
-  w.on('all', (event, f) => win?.webContents.send('vault:activity', { id: v.id, event, file: f }))
-  watchers.set(v.id, w)
+  if (watchers.has(v.id)) return;
+  const w = chokidar.watch(v.path, { ignored: /(^|[/\\])\./, ignoreInitial: true });
+  w.on('all', (event, f) => win?.webContents.send('vault:activity', { id: v.id, event, file: f }));
+  watchers.set(v.id, w);
 }
 
 function getIntervalSeconds(v) {
-  const s = v.intervalSec ?? (v.intervalMin ? v.intervalMin * 60 : 600)
-  return Math.max(30, Number(s) || 600)
+  const s = v.intervalSec ?? (v.intervalMin ? v.intervalMin * 60 : 600);
+  return Math.max(30, Number(s) || 600);
 }
 
 function scheduleVault(v) {
-  if (timers.has(v.id)) clearInterval(timers.get(v.id))
-  const ms = getIntervalSeconds(v) * 1000
-  timers.set(v.id, setInterval(() => syncVault(v), ms))
+  if (timers.has(v.id)) clearInterval(timers.get(v.id));
+  const ms = getIntervalSeconds(v) * 1000;
+  timers.set(v.id, setInterval(() => syncVault(v), ms));
 }
 
 function reloadSchedulers() {
-  for (const [, t] of timers) clearInterval(t)
-  timers.clear()
-  if (store.get('paused')) return
-  const vs = store.get('vaults')
+  for (const [, t] of timers) clearInterval(t);
+  timers.clear();
+  if (store.get('paused')) return;
+  const vs = store.get('vaults');
   vs.forEach(v => {
     if (v.path && fs.existsSync(v.path)) {
-      startWatcher(v)
-      scheduleVault(v)
+      startWatcher(v);
+      scheduleVault(v);
     }
-  })
+  });
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
- *  Discord Rich Presence (stable session timer)
+ *  Discord Rich Presence
  *  ───────────────────────────────────────────────────────────────────────────*/
-let rpc = null
-let lastPresenceAt = 0
-let presenceTimer = null
-let revertIdleTimer = null
-const syncStartTimes = new Map()
-const sessionStartTs = Math.floor(Date.now() / 1000)
+let rpc = null;
+let lastPresenceAt = 0;
+let presenceTimer = null;
+let revertIdleTimer = null;
+const syncStartTimes = new Map();
+const sessionStartTs = Math.floor(Date.now() / 1000);
 
 function initDiscordRPC() {
-  if (!DISCORD_CLIENT_ID) {
-    console.log('[RPC] Skipping: no DISCORD_CLIENT_ID set')
-    return
-  }
-  try { RPC.register(DISCORD_CLIENT_ID) } catch {}
+  if (!DISCORD_CLIENT_ID) { logLine('[RPC] Skipping: no client id'); return; }
+  try { RPC.register(DISCORD_CLIENT_ID); } catch {}
 
-  rpc = new RPC.Client({ transport: 'ipc' })
-  rpc.on('ready', () => {
-    console.log('[RPC] Ready as', rpc.user?.username)
-    setPresenceIdle()
-  })
-  rpc.login({ clientId: DISCORD_CLIENT_ID }).catch(err => {
-    console.error('[RPC] Login failed', err)
-  })
+  rpc = new RPC.Client({ transport: 'ipc' });
+  rpc.on('ready', () => { logLine('[RPC] ready'); setPresenceIdle(); });
+  rpc.login({ clientId: DISCORD_CLIENT_ID }).catch(err => logLine(`[RPC] login failed: ${err}`));
 }
 
 function setPresence(activity, opts = { preserveSessionTs: true }) {
-  if (!rpc) return
+  if (!rpc) return;
   if (opts.preserveSessionTs !== false && !activity.startTimestamp) {
-    activity.startTimestamp = sessionStartTs
+    activity.startTimestamp = sessionStartTs;
   }
-  const now = Date.now()
-  const wait = Math.max(0, MIN_PRESENCE_INTERVAL_MS - (now - lastPresenceAt))
+  const now = Date.now();
+  const wait = Math.max(0, MIN_PRESENCE_INTERVAL_MS - (now - lastPresenceAt));
   const apply = () => {
-    lastPresenceAt = Date.now()
-    rpc.setActivity(activity).catch(() => {})
-  }
-  if (wait > 0) {
-    clearTimeout(presenceTimer)
-    presenceTimer = setTimeout(apply, wait)
-  } else {
-    apply()
-  }
+    lastPresenceAt = Date.now();
+    rpc.setActivity(activity).catch(() => {});
+  };
+  if (wait > 0) { clearTimeout(presenceTimer); presenceTimer = setTimeout(apply, wait); }
+  else { apply(); }
 }
 
 function setPresenceIdle() {
-  clearTimeout(revertIdleTimer)
+  clearTimeout(revertIdleTimer);
   setPresence({
     details: 'Idle',
     state: 'Waiting for changes',
@@ -364,51 +374,47 @@ function setPresenceIdle() {
     largeImageText: 'ObsiSync',
     smallImageKey: 'idle',
     smallImageText: 'Idle'
-  }, { preserveSessionTs: true })
+  }, { preserveSessionTs: true });
 }
-
 function setPresencePaused() {
-  clearTimeout(revertIdleTimer)
+  clearTimeout(revertIdleTimer);
   setPresence({
     details: 'Paused',
     state: 'Schedulers disabled',
     largeImageKey: 'obsisync_logo',
     smallImageKey: 'idle',
     smallImageText: 'Paused'
-  }, { preserveSessionTs: true })
+  }, { preserveSessionTs: true });
 }
-
 function toHttpsGithub(url) {
-  if (!url) return null
+  if (!url) return null;
   if (url.startsWith('git@github.com:')) {
-    const slug = url.split(':')[1]?.replace(/\.git$/, '')
-    if (slug) return `https://github.com/${slug}`
+    const slug = url.split(':')[1]?.replace(/\.git$/, '');
+    if (slug) return `https://github.com/${slug}`;
   }
-  if (/^https?:\/\/(www\.)?github\.com\//i.test(url)) return url
-  return null
+  if (/^https?:\/\/(www\.)?github\.com\//i.test(url)) return url;
+  return null;
 }
-
 function showVaultStatsPresence(v, stats) {
-  clearTimeout(revertIdleTimer)
+  clearTimeout(revertIdleTimer);
   const state = [
     stats?.files != null ? `${stats.files} files` : null,
     stats?.commits != null ? `${stats.commits} commits` : null,
     stats?.size || null
-  ].filter(Boolean).join(' • ')
-  const httpsRepo = toHttpsGithub(v?.repoUrl)
+  ].filter(Boolean).join(' • ');
+  const httpsRepo = toHttpsGithub(v?.repoUrl);
   setPresence({
     details: `Vault: ${v?.name || 'No vault'}`,
     state: state || 'Ready',
     largeImageKey: 'obsisync_logo',
     largeImageText: 'ObsiSync',
     buttons: httpsRepo ? [{ label: 'Open Repo', url: httpsRepo }] : undefined
-  }, { preserveSessionTs: true })
+  }, { preserveSessionTs: true });
 }
-
 function presenceSyncStart(v) {
-  clearTimeout(revertIdleTimer)
-  const started = Date.now()
-  syncStartTimes.set(v.id, started)
+  clearTimeout(revertIdleTimer);
+  const started = Date.now();
+  syncStartTimes.set(v.id, started);
   setPresence({
     details: `Syncing: ${v?.name || 'No vault'}`,
     state: 'Committing & pushing…',
@@ -416,12 +422,11 @@ function presenceSyncStart(v) {
     largeImageKey: 'obsisync_logo',
     smallImageKey: 'sync',
     smallImageText: 'Syncing'
-  }, { preserveSessionTs: false })
+  }, { preserveSessionTs: false });
 }
-
 function presenceSyncDone(v, changed) {
-  const started = syncStartTimes.get(v.id)
-  clearTimeout(revertIdleTimer)
+  const started = syncStartTimes.get(v.id);
+  clearTimeout(revertIdleTimer);
   setPresence({
     details: `Synced: ${v?.name || 'No vault'}`,
     state: `${changed} files`,
@@ -429,96 +434,86 @@ function presenceSyncDone(v, changed) {
     largeImageKey: 'obsisync_logo',
     smallImageKey: 'done',
     smallImageText: 'Done'
-  }, { preserveSessionTs: false })
-  revertIdleTimer = setTimeout(() => setPresenceIdle(), SYNC_DONE_SHOW_MS)
+  }, { preserveSessionTs: false });
+  revertIdleTimer = setTimeout(() => setPresenceIdle(), SYNC_DONE_SHOW_MS);
 }
-
 function presenceError(v, message) {
-  clearTimeout(revertIdleTimer)
+  clearTimeout(revertIdleTimer);
   setPresence({
     details: `Error: ${v?.name || 'No vault'}`,
     state: (message || '').slice(0, 100),
     largeImageKey: 'obsisync_logo',
     smallImageKey: 'error',
     smallImageText: 'Error'
-  }, { preserveSessionTs: true })
+  }, { preserveSessionTs: true });
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Sync Pipeline
  *  ───────────────────────────────────────────────────────────────────────────*/
 async function syncVault(v) {
-  if (store.get('paused')) return { skipped: true }
-  const started = new Date()
+  if (store.get('paused')) return { skipped: true };
+  const started = new Date();
 
   try {
-    presenceSyncStart(v)
-    await ensureRepo(v)
+    presenceSyncStart(v);
+    await ensureRepo(v);
 
     if (v.onlyIfChanges && (await countChanges(v.path)) === 0) {
-      const p = { type:'info', text:`${v.name}: no changes to commit.`, title:'ObsiSync', meta:'', alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 }
-      if (v.notifyOverlay !== false) showOverlay(p)
-      setPresenceIdle()
-      return { changed: 0, skipped: true }
+      const p = { type:'info', text:`${v.name}: no changes to commit.`, title:'ObsiSync', meta:'', alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 };
+      if (v.notifyOverlay !== false) showOverlay(p);
+      setPresenceIdle();
+      return { changed: 0, skipped: true };
     }
 
-    await runGit(v.path, ['add', '-A'])
-    const changed = await countChanges(v.path)
-    if (changed === 0) { setPresenceIdle(); return { changed: 0, skipped: true } }
+    await runGit(v.path, ['add', '-A']);
+    const changed = await countChanges(v.path);
+    if (changed === 0) { setPresenceIdle(); return { changed: 0, skipped: true }; }
 
     const msg = (v.commitTemplate || 'ObsiSync: {count} files — {date}')
       .replace('{count}', String(changed))
-      .replace('{date}', started.toLocaleString())
+      .replace('{date}', started.toLocaleString());
 
-    await runGit(v.path, ['commit', '-m', msg])
+    await runGit(v.path, ['commit', '-m', msg]);
     if (v.branch) {
-      try { await runGit(v.path, ['pull', '--rebase', 'origin', v.branch]) } catch {}
-      await runGit(v.path, ['push', 'origin', v.branch])
+      try { await runGit(v.path, ['pull', '--rebase', 'origin', v.branch]); } catch {}
+      await runGit(v.path, ['push', 'origin', v.branch]);
     }
 
-    // Update lastSync
-    const vaults = store.get('vaults')
-    const idx = vaults.findIndex(x => x.id === v.id)
-    if (idx !== -1) {
-      vaults[idx].lastSync = new Date().toISOString()
-      store.set('vaults', vaults)
-    }
+    const vaults = store.get('vaults');
+    const idx = vaults.findIndex(x => x.id === v.id);
+    if (idx !== -1) { vaults[idx].lastSync = new Date().toISOString(); store.set('vaults', vaults); }
 
-    // Emit latest commit line for History
-    const fmt = '%H|%cI|%an|%ae|%s|%b'
+    const fmt = '%H|%cI|%an|%ae|%s|%b';
     try {
-      const latest = await runGit(v.path, ['log', '-1', `--pretty=${fmt}`])
-      const line = (latest.out || '').split('\n')[0] || ''
-      if (line) win?.webContents.send('vault:git-entry', { id: v.id, line })
+      const latest = await runGit(v.path, ['log', '-1', `--pretty=${fmt}`]);
+      const line = (latest.out || '').split('\n')[0] || '';
+      if (line) win?.webContents.send('vault:git-entry', { id: v.id, line });
     } catch {}
 
-    // Toast
-    const payload = { type:'success', text:`${v.name} synced ${changed} files`, title:'ObsiSync', meta:new Date().toLocaleTimeString(), alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 }
-    if (v.notifyOS) notifyOS('ObsiSync', `${v.name} synced ${changed} files`)
-    if (v.notifyOverlay !== false) showOverlay(payload)
+    const payload = { type:'success', text:`${v.name} synced ${changed} files`, title:'ObsiSync', meta:new Date().toLocaleTimeString(), alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 };
+    if (v.notifyOS) notifyOS('ObsiSync', `${v.name} synced ${changed} files`);
+    if (v.notifyOverlay !== false) showOverlay(payload);
 
-    // UI event
-    win?.webContents.send('vault:activity', { id: v.id, event: 'sync', type: 'sync-complete' })
+    win?.webContents.send('vault:activity', { id: v.id, event: 'sync', type: 'sync-complete' });
 
-    // RPC done
-    presenceSyncDone(v, changed)
+    presenceSyncDone(v, changed);
 
-    // Optional: refresh stats presence
     try {
-      const files = countFilesUnder(v.path)
-      const commits = await getGitCommitCount(v.path)
-      const size = getDirSize(v.path)
-      showVaultStatsPresence(v, { files, commits, size })
+      const files = countFilesUnder(v.path);
+      const commits = await getGitCommitCount(v.path);
+      const size = getDirSize(v.path);
+      showVaultStatsPresence(v, { files, commits, size });
     } catch {}
 
-    return { changed }
+    return { changed };
   } catch (e) {
-    const err = e?.message || String(e)
-    const payload = { type:'error', text:`${v.name} ${err.slice(0,120)}`, title:'ObsiSync', meta:'', alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 }
-    showOverlay(payload)
-    notifyOS('ObsiSync error', err.slice(0,120))
-    presenceError(v, err)
-    return { error: err }
+    const err = e?.message || String(e);
+    const payload = { type:'error', text:`${v.name} ${err.slice(0,120)}`, title:'ObsiSync', meta:'', alpha: v.overlayAlpha ?? 0.55, scale: v.overlayScale ?? 0.92 };
+    showOverlay(payload);
+    notifyOS('ObsiSync error', err.slice(0,120));
+    presenceError(v, err);
+    return { error: err };
   }
 }
 
@@ -526,13 +521,11 @@ async function syncVault(v) {
  *  Splash Window (cold start only)
  *  ───────────────────────────────────────────────────────────────────────────*/
 function createSplashWindow() {
-  if (splash && !splash.isDestroyed()) return splash
-  const primary = screen.getPrimaryDisplay().workArea
-  const width = 820
-  const height = 520
+  if (splash && !splash.isDestroyed()) return splash;
+  const primary = screen.getPrimaryDisplay().workArea;
+  const width = 820, height = 520;
   splash = new BrowserWindow({
-    width,
-    height,
+    width, height,
     x: Math.round(primary.x + (primary.width - width) / 2),
     y: Math.round(primary.y + (primary.height - height) / 2),
     frame: false,
@@ -544,121 +537,130 @@ function createSplashWindow() {
     alwaysOnTop: true,
     backgroundColor: '#00000000',
     webPreferences: { nodeIntegration: false, contextIsolation: true }
-  })
-  const devUrl = process.env.VITE_DEV_SERVER
-  if (devUrl) splash.loadURL(devUrl + '/splash.html')
-  else splash.loadFile(path.join(process.cwd(), 'public', 'splash.html'))
-  return splash
+  });
+  const devUrl = process.env.VITE_DEV_SERVER;
+  if (devUrl) splash.loadURL(devUrl + '/splash.html');
+  else splash.loadFile(APP_RESOLVE('public', 'splash.html'));
+  return splash;
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  App Lifecycle
  *  ───────────────────────────────────────────────────────────────────────────*/
-app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null)
+const singleLock = app.requestSingleInstanceLock();
+if (!singleLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
 
-  // Cold start: build main (hidden), overlay & tray, then run splash and cross-fade to main.
-  await createWindow({ deferShow: true })
-  createOverlay()
-  rebuildTray()
-  reloadSchedulers()
-  initDiscordRPC()
+  app.whenReady().then(async () => {
+    app.setAppUserModelId('com.pers.obsisync');
+    Menu.setApplicationMenu(null);
 
-  const s = createSplashWindow()
-  s.once('ready-to-show', () => s.showInactive?.())
+    await createWindow({ deferShow: true });
+    createOverlay();
+    rebuildTray();
+    reloadSchedulers();
+    initDiscordRPC();
 
-  // Prepare main behind the splash with 0 opacity
-  try { win.setOpacity(0); win.showInactive?.() } catch {}
+    const s = createSplashWindow();
+    s.once('ready-to-show', () => s.showInactive?.());
 
-  setTimeout(async () => {
-    // Cross-fade: main in, splash out
-    await Promise.all([
-      fadeWindow(win, 0, 1, MAIN_FADE_IN_MS),
-      (async () => { try { await fadeWindow(s, 1, 0, MAIN_FADE_IN_MS + 120); s.destroy() } catch {} })()
-    ])
-    try { win.focus() } catch {}
-  }, SPLASH_DURATION_MS)
-})
+    try { win.setOpacity(0); win.showInactive?.(); } catch {}
+
+    setTimeout(async () => {
+      await Promise.all([
+        fadeWindow(win, 0, 1, MAIN_FADE_IN_MS),
+        (async () => { try { await fadeWindow(s, 1, 0, MAIN_FADE_IN_MS + 120); s.destroy(); } catch {} })()
+      ]);
+      try { win.focus(); } catch {}
+    }, SPLASH_DURATION_MS);
+  });
+}
 
 app.on('before-quit', () => {
-  quitting = true
-  ;[presenceTimer, revertIdleTimer].forEach(t => { try { clearTimeout(t) } catch {} })
-  if (rpc) { try { rpc.destroy() } catch {} }
-})
+  quitting = true;
+  [presenceTimer, revertIdleTimer].forEach(t => { try { clearTimeout(t); } catch {} });
+  if (rpc) { try { rpc.destroy(); } catch {} }
+});
 
-app.on('window-all-closed', () => {
-  // keep app running in tray
-})
+app.on('window-all-closed', () => { /* keep running in tray */ });
+
+// Diagnostics
+app.on('render-process-gone', (_e, d) => logLine(`renderer gone: ${JSON.stringify(d)}`));
+app.on('child-process-gone',  (_e, d) => logLine(`child gone: ${JSON.stringify(d)}`));
+process.on('uncaughtException', e => logLine(`uncaughtException: ${e?.stack || e}`));
+process.on('unhandledRejection', e => logLine(`unhandledRejection: ${e}`));
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  IPC
  *  ───────────────────────────────────────────────────────────────────────────*/
-ipcMain.handle('win:minimize', () => { win?.minimize(); return true })
-
+ipcMain.handle('win:minimize', () => { win?.minimize(); return true; });
 ipcMain.handle('win:close', async () => {
-  if (!win) return false
-  await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS)
-  try { win.hide(); win.setOpacity(1) } catch {}
-  return true
-})
+  if (!win) return false;
+  await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS);
+  try { win.hide(); win.setOpacity(1); } catch {}
+  return true;
+});
 
 ipcMain.handle('dialog:pickFolder', async () => {
-  const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
-  if (r.canceled) return null
-  return r.filePaths[0]
-})
+  const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  if (r.canceled) return null;
+  return r.filePaths[0];
+});
 
-ipcMain.handle('store:get', (_, k) => Store.prototype.get.call(store, k))
-
-ipcMain.handle('store:set', (_, k, v) => {
-  Store.prototype.set.call(store, k, v)
-  reloadSchedulers()
-  return true
-})
+ipcMain.handle('store:get', (_, k) => Store.prototype.get.call(store, k));
+ipcMain.handle('store:set', (_, k, v) => { Store.prototype.set.call(store, k, v); reloadSchedulers(); return true; });
 
 ipcMain.handle('vault:sync', async (_, id) => {
-  const v = store.get('vaults').find(x => x.id === id)
-  if (v) return await syncVault(v)
-  return null
-})
+  const v = store.get('vaults').find(x => x.id === id);
+  if (v) return await syncVault(v);
+  return null;
+});
 
 ipcMain.handle('vault:openPath', (_, id) => {
-  const v = store.get('vaults').find(x => x.id === id)
-  if (v?.path) shell.openPath(v.path)
-})
+  const v = store.get('vaults').find(x => x.id === id);
+  if (v?.path) shell.openPath(v.path);
+});
 
 ipcMain.handle('paused:toggle', () => {
-  store.set('paused', !store.get('paused'))
-  reloadSchedulers()
-  rebuildTray()
-  const paused = store.get('paused')
-  paused ? setPresencePaused() : setPresenceIdle()
-  return paused
-})
+  store.set('paused', !store.get('paused'));
+  reloadSchedulers();
+  rebuildTray();
+  const paused = store.get('paused');
+  paused ? setPresencePaused() : setPresenceIdle();
+  return paused;
+});
 
-ipcMain.handle('vault:countFiles', async (_e, root) => countFilesUnder(root))
+ipcMain.handle('vault:countFiles', async (_e, root) => countFilesUnder(root));
 
 ipcMain.handle('vault:getStats', async (_e, id) => {
-  const v = store.get('vaults').find(x => x.id === id)
-  if (!v || !v.path) return { files: undefined, commits: undefined, size: undefined }
-  const files = countFilesUnder(v.path)
-  const commits = await getGitCommitCount(v.path)
-  const size = getDirSize(v.path)
-  showVaultStatsPresence(v, { files, commits, size })
-  return { files, commits, size }
-})
+  const v = store.get('vaults').find(x => x.id === id);
+  if (!v || !v.path) return { files: undefined, commits: undefined, size: undefined };
+  const files = countFilesUnder(v.path);
+  const commits = await getGitCommitCount(v.path);
+  const size = getDirSize(v.path);
+  showVaultStatsPresence(v, { files, commits, size });
+  return { files, commits, size };
+});
 
 ipcMain.handle('git:getLog', async (_e, id, limit = 500) => {
-  const v = store.get('vaults').find(x => x.id === id)
-  if (!v || !v.path) return []
+  const v = store.get('vaults').find(x => x.id === id);
+  if (!v || !v.path) return [];
   try {
-    const fmt = '%H|%cI|%an|%ae|%s|%b'
-    const res = await runGit(v.path, ['log', `--pretty=${fmt}`, '-n', String(limit)])
-    return res.out.split('\n').filter(Boolean)
-  } catch { return [] }
-})
+    const fmt = '%H|%cI|%an|%ae|%s|%b';
+    const res = await runGit(v.path, ['log', `--pretty=${fmt}`, '-n', String(limit)]);
+    return res.out.split('\n').filter(Boolean);
+  } catch { return []; }
+});
 
 ipcMain.handle('shell:openExternal', async (_e, url) => {
-  try { await shell.openExternal(url); return true }
-  catch (err) { console.error('Failed to open external URL:', err); return false }
-})
+  try { await shell.openExternal(url); return true; }
+  catch (err) { console.error('Failed to open external URL:', err); return false; }
+});

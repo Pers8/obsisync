@@ -2,7 +2,8 @@
   "name": "obsisync",
   "version": "0.1.8",
   "private": true,
-  "description": "Tiny Electron app to auto-backup Obsidian vaults to GitHub on a schedule.",
+  "description": "Auto-backup Obsidian vaults to GitHub on a schedule",
+  "author": "Péres Eldad <pereslcb@gmail.com>",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
@@ -42,25 +43,29 @@
     "appId": "com.pers.obsisync",
     "productName": "ObsiSync",
     "asar": true,
+
+    "directories": { "buildResources": "build" },
+
     "files": [
       "dist/**",
       "electron/**",
-      "node_modules/**",
+      "public/**",
       "package.json",
-      "public/**"
+      "node_modules/**",
+
+      "!**/*.bak",
+      "!**/*.map",
+      "!**/*.psd"
     ],
-    "directories": {
-      "buildResources": "build"
-    },
+
     "icon": "build/logo.ico",
+
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
+      "target": ["nsis"],
       "icon": "build/logo.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
+
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -68,22 +73,28 @@
       "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "ObsiSync"
+      "shortcutName": "ObsiSync",
+
+      "differentialPackage": false,
+
+      "multiLanguageInstaller": true,
+      "installerLanguages": ["en_US"],
+      "displayLanguageSelector": false,
+      "unicode": true
     },
+
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/logo.icns"
     },
+
     "linux": {
       "target": "AppImage",
       "icon": "build"
     },
+
     "publish": [
-      {
-        "provider": "github",
-        "owner": "Pers8",
-        "repo": "obsisync"
-      }
+      { "provider": "github", "owner": "Pers8", "repo": "obsisync" }
     ]
   }
 }
