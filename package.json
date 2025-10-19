@@ -6,6 +6,7 @@
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
+    "release": "electron-builder --publish=always",
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=http://localhost:5173 electron .\"",
     "start": "electron .",
     "build:ui": "vite build",
@@ -41,22 +42,11 @@
     "appId": "com.pers.obsisync",
     "productName": "ObsiSync",
     "asar": true,
-    "files": [
-      "dist/**",
-      "electron/**",
-      "node_modules/**",
-      "package.json",
-      "public/**"
-    ],
-    "directories": {
-      "buildResources": "build"
-    },
+    "files": ["dist/**", "electron/**", "node_modules/**", "package.json", "public/**"],
+    "directories": {"buildResources": "build"},
     "icon": "build/logo.ico",
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
+      "target": ["nsis", "portable"],
       "icon": "build/logo.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
@@ -69,13 +59,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "ObsiSync"
     },
-    "mac": {
-      "category": "public.app-category.productivity",
-      "icon": "build/logo.icns"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "build"
-    }
+    "mac": {"category": "public.app-category.productivity", "icon": "build/logo.icns"},
+    "linux": {"target": "AppImage", "icon": "build"},
+    "publish": [{ "provider": "github", "owner": "Pers8", "repo": "obsisync" }]
   }
 }

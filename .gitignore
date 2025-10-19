@@ -1,0 +1,21 @@
+@'
+# Build outputs
+dist/
+*.exe
+*.blockmap
+latest.yml
+app-update.yml
+
+# Dev caches
+.vite/
+**/*.map
+
+# Dependencies
+node_modules/
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+'@ | Out-File -Encoding utf8 .gitignore

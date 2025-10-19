@@ -29,11 +29,10 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '1428920385776386078'
 const MIN_PRESENCE_INTERVAL_MS = 15_000
 const SYNC_DONE_SHOW_MS = 5_000
 
-// Splash / window animation tunables
-const SPLASH_DURATION_MS = 6300       // how long to keep the splash visible
-const SHOW_ANIM_MS       = 320        // main window show animation
-const HIDE_ANIM_MS       = 200        // main window hide animation
-const SHOW_SCALE_FROM    = 1.1       // start scale of the show animation
+// Splash / show/hide timings
+const SPLASH_DURATION_MS = 7200
+const MAIN_FADE_IN_MS    = 300
+const MAIN_FADE_OUT_MS   = 180
 
 /** ─────────────────────────────────────────────────────────────────────────────
  *  Store & Globals
@@ -171,70 +170,23 @@ function showOverlay(payload) {
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
- *  Window animations (show / hide)
+ *  Window fade helpers (no weird scaling)
  *  ───────────────────────────────────────────────────────────────────────────*/
-function animateShowWindow(targetWin, ms = SHOW_ANIM_MS, fromScale = SHOW_SCALE_FROM) {
-  if (!targetWin) return
-  try { targetWin.setOpacity(0) } catch {}
-
-  // Try a scale-like effect by resizing around center + fade in.
-  const bounds = targetWin.getBounds()
-  const cx = bounds.x + bounds.width / 2
-  const cy = bounds.y + bounds.height / 2
-  const startW = Math.round(bounds.width * fromScale)
-  const startH = Math.round(bounds.height * fromScale)
-
-  const steps = Math.max(12, Math.floor(ms / 16))
-  let i = 0
-
-  targetWin.setBounds({
-    x: Math.round(cx - startW / 2),
-    y: Math.round(cy - startH / 2),
-    width: startW,
-    height: startH
-  }, false)
-
-  targetWin.showInactive?.()
-  const timer = setInterval(() => {
-    i++
-    const t = i / steps
-    const ease = t < 1 ? (1 - Math.pow(1 - t, 3)) : 1 // cubic out
-
-    const w = Math.round(startW + (bounds.width - startW) * ease)
-    const h = Math.round(startH + (bounds.height - startH) * ease)
-    const x = Math.round(cx - w / 2)
-    const y = Math.round(cy - h / 2)
-
-    try {
-      targetWin.setBounds({ x, y, width: w, height: h }, false)
-      targetWin.setOpacity(0 + ease)
-    } catch {}
-
-    if (i >= steps) {
-      clearInterval(timer)
-      try {
-        targetWin.setBounds(bounds, false)
-        targetWin.setOpacity(1)
-        targetWin.focus()
-      } catch {}
-    }
-  }, Math.max(8, Math.floor(ms / steps)))
-}
-
-function animateHideWindow(targetWin, ms = HIDE_ANIM_MS) {
-  if (!targetWin) return Promise.resolve()
+function fadeWindow(winRef, from, to, ms) {
+  if (!winRef) return Promise.resolve()
   return new Promise(resolve => {
-    const steps = Math.max(10, Math.floor(ms / 16))
+    try { winRef.setOpacity(from) } catch {}
+    const steps = Math.max(12, Math.floor(ms / 16))
     let i = 0
-    const startOpacity = targetWin.getOpacity?.() ?? 1
     const timer = setInterval(() => {
       i++
       const t = i / steps
-      const ease = t * t // quad in
-      try { targetWin.setOpacity(startOpacity * (1 - ease)) } catch {}
+      const eased = 1 - Math.pow(1 - t, 3) // cubic out
+      const val = from + (to - from) * eased
+      try { winRef.setOpacity(val) } catch {}
       if (i >= steps) {
         clearInterval(timer)
-        try { targetWin.hide(); targetWin.setOpacity(1) } catch {}
+        try { winRef.setOpacity(to) } catch {}
         resolve()
       }
     }, Math.max(8, Math.floor(ms / steps)))
@@ -286,11 +238,11 @@ async function createWindow({ deferShow = false } = {}) {
   if (devUrl) await win.loadURL(devUrl)
   else await win.loadFile(path.join(process.cwd(), 'dist', 'index.html'))
 
-  // Intercept OS/window close (fade-to-tray)
   win.on('close', async (e) => {
     if (!quitting) {
       e.preventDefault()
-      await animateHideWindow(win, HIDE_ANIM_MS)
+      await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS)
+      try { win.hide(); win.setOpacity(1) } catch {}
     }
   })
 }
@@ -358,7 +310,7 @@ function reloadSchedulers() {
 }
 
 /** ─────────────────────────────────────────────────────────────────────────────
- *  Discord Rich Presence (session-stable elapsed time)
+ *  Discord Rich Presence (stable session timer)
  *  ───────────────────────────────────────────────────────────────────────────*/
 let rpc = null
 let lastPresenceAt = 0
@@ -605,7 +557,7 @@ function createSplashWindow() {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
 
-  // Cold start: create main window hidden, show splash, then animate main in.
+  // Cold start: build main (hidden), overlay & tray, then run splash and cross-fade to main.
   await createWindow({ deferShow: true })
   createOverlay()
   rebuildTray()
@@ -614,9 +566,17 @@ app.whenReady().then(async () => {
 
   const s = createSplashWindow()
   s.once('ready-to-show', () => s.showInactive?.())
+
+  // Prepare main behind the splash with 0 opacity
+  try { win.setOpacity(0); win.showInactive?.() } catch {}
+
   setTimeout(async () => {
-    try { s.destroy() } catch {}
-    animateShowWindow(win, SHOW_ANIM_MS, SHOW_SCALE_FROM)
+    // Cross-fade: main in, splash out
+    await Promise.all([
+      fadeWindow(win, 0, 1, MAIN_FADE_IN_MS),
+      (async () => { try { await fadeWindow(s, 1, 0, MAIN_FADE_IN_MS + 120); s.destroy() } catch {} })()
+    ])
+    try { win.focus() } catch {}
   }, SPLASH_DURATION_MS)
 })
 
@@ -637,7 +597,8 @@ ipcMain.handle('win:minimize', () => { win?.minimize(); return true })
 
 ipcMain.handle('win:close', async () => {
   if (!win) return false
-  await animateHideWindow(win, HIDE_ANIM_MS)
+  await fadeWindow(win, 1, 0, MAIN_FADE_OUT_MS)
+  try { win.hide(); win.setOpacity(1) } catch {}
   return true
 })
 
